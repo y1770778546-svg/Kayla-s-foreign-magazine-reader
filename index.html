@@ -128,15 +128,6 @@
   #main button.primary:hover{background:#7a2730; box-shadow:0 5px 16px rgba(140,47,57,.25)}
   .drop{border:2px dashed var(--line); border-radius:12px; padding:22px; text-align:center; color:var(--muted); cursor:pointer; margin-top:10px}
   .drop.over{border-color:var(--accent); color:var(--accent); background:var(--tint)}
-  /* 网址抓取 */
-  .url-row{display:flex; gap:8px; margin-top:8px}
-  .url-row input{flex:1; min-width:0; border:1px solid var(--line); border-radius:8px; padding:9px 11px; font-size:13.5px; font-family:inherit; background:#fffdf9}
-  .url-row button{white-space:nowrap; padding:9px 18px}
-  .url-row button:disabled{opacity:.6; cursor:not-allowed; transform:none; box-shadow:none}
-  .url-status{font-size:12.5px; margin-top:7px; color:var(--muted); line-height:1.55}
-  .url-status.ok{color:var(--teal)}
-  .url-status.err{color:#c0392b}
-  @media(max-width:560px){ .url-row{flex-direction:column} .url-row button{width:100%} }
   .row{display:flex; gap:10px; flex-wrap:wrap; margin-top:12px}
   .hint{font-size:12.5px; color:var(--muted); margin-top:6px}
   /* report (reuse demo styles) */
@@ -537,9 +528,6 @@
     <input id="setKey" type="password" placeholder="sk-...">
     <label>模型名（默认 glm-5.3-flash，GLM 模型）</label>
     <input id="setModel" type="text" placeholder="glm-5.3-flash">
-    <label>网址抓取代理（可选，留空则自动尝试公共通道）</label>
-    <input id="setUrlProxy" type="text" placeholder="https://your-proxy.example/?url={url}">
-    <p class="hint">抓外刊网址必须跨域，公共通道不稳定或被墙时可填自建 / 付费代理。<code>{url}</code> 会替换成目标网址；不含该占位符时，网址会直接拼接在末尾。</p>
     <label>练习题类型（维度五 · 专八）</label>
     <select id="setExercise">
       <option value="cloze">完形填空（专八 20 空）</option>
@@ -1400,14 +1388,8 @@ function inputPanelHTML(title,text){
     <input id="inTitle" type="text" placeholder="如：The Economist · AI 与就业" value="${escapeHtml(title)}">
     <label>来源 / 主题（可选）</label>
     <input id="inSource" type="text" placeholder="如：经济学人 · 科技">
-    <label>🔗 或直接粘贴网址，自动抓取正文</label>
-    <div class="url-row">
-      <input id="inUrl" type="text" placeholder="https://www.economist.com/..." onkeydown="if(event.key==='Enter')fetchFromUrl()">
-      <button id="urlBtn" onclick="fetchFromUrl()">🌐 抓取正文</button>
-    </div>
-    <div class="url-status" id="urlStatus">自动识别网页正文并填入下方。付费墙站点只能抓到免费预览部分。</div>
     <label>外刊文本</label>
-    <textarea id="inText" placeholder="在此粘贴英文文章，或上方贴网址自动抓取，或下方拖入 / 选择 .txt / .md / .pdf 文件">${escapeHtml(text)}</textarea>
+    <textarea id="inText" placeholder="在此粘贴英文文章，或下方拖入 / 选择 .txt / .md / .pdf 文件">${escapeHtml(text)}</textarea>
     <div class="drop" id="drop">📄 拖入文件，或点击选择（.txt / .md / .pdf）</div>
     <input type="file" id="fileIn" accept=".txt,.md,.pdf" style="display:none">
     <div class="row">
@@ -1429,178 +1411,6 @@ function wireInput(){
 async function ensurePdfJs(){
   if(window.pdfjsLib) return window.pdfjsLib;
   throw new Error('pdf.js 未内联加载');
-}
-
-/* ---------- 网址抓取外刊正文 ----------
-   浏览器无法直接跨域抓网页（CORS），故走公共代理：
-   1) r.jina.ai —— 直接把网页转成干净 markdown，正文质量最好
-   2) allorigins / corsproxy —— 拉原始 HTML，再用内置可读性提取器抽正文
-   任一通道成功即返回，全部失败才报错。 */
-const URL_PROXIES=[
-  {name:'r.jina.ai',    type:'md',   build:u=>'https://r.jina.ai/'+u},
-  {name:'allorigins',   type:'json', build:u=>'https://api.allorigins.win/get?url='+encodeURIComponent(u)},
-  {name:'codetabs',     type:'html', build:u=>'https://api.codetabs.com/v1/proxy?quest='+encodeURIComponent(u)},
-  {name:'allorigins直连', type:'html', build:u=>'https://api.allorigins.win/raw?url='+encodeURIComponent(u)}
-];
-const URL_NOISE_LINE=/^(share|subscribe|sign in|log in|log out|menu|search|skip to|home$|^home$|news$|more$|follow us|advertisement|^ad$|related|read more|continue reading|cookie|privacy|terms|copyright|all rights reserved|photo:|image:|illustration:)/i;
-function hostOf(url){ try{ return new URL(url).hostname.replace(/^www\./,''); }catch(e){ return ''; } }
-function normalizeUrl(raw){
-  let u=(raw||'').trim();
-  if(!u) return null;
-  if(!/^https?:\/\//i.test(u)) u='https://'+u;
-  try{ const o=new URL(u); return (o.protocol==='http:'||o.protocol==='https:')?o.href:null; }catch(e){ return null; }
-}
-function fetchWithTimeout(url, ms){
-  if(typeof AbortController==='undefined') return fetch(url);
-  const c=new AbortController();
-  const t=setTimeout(()=>c.abort(), ms||20000);
-  return fetch(url,{signal:c.signal, redirect:'follow'}).finally(()=>clearTimeout(t));
-}
-function cleanMarkdown(s){
-  let out=s||'';
-  out=out.replace(/!\[[^\]]*\]\([^)]*\)/g,'');            // 图片
-  out=out.replace(/\[([^\]]+)\]\([^)]*\)/g,'$1');          // 链接保留文字
-  out=out.replace(/^Title:.*$/gmi,'').replace(/^URL Source:.*$/gmi,'').replace(/^Markdown Content:.*$/gmi,'');
-  out=out.replace(/^#{1,6}\s+/gm,'');                       // 标题符号
-  out=out.replace(/^>\s?/gm,'');                            // 引用
-  out=out.replace(/^\s*[-*]{3,}\s*$/gm,'');                 // 分隔线
-  out=out.replace(/\*\*([^*]+)\*\*/g,'$1').replace(/\*([^*]+)\*/g,'$1');
-  out=out.replace(/[ \t]+\n/g,'\n').replace(/\n{3,}/g,'\n\n');
-  return out.trim();
-}
-function parseJinaMarkdown(md, url){
-  let s=md||'', title='';
-  const mTitle=s.match(/^Title:\s*(.+)$/mi);
-  if(mTitle) title=mTitle[1].trim();
-  const parts=s.split(/Markdown Content:/i);
-  if(parts.length>1){ s=parts.slice(1).join('\n'); }
-  if(!title){ const m=s.match(/^#\s+(.+)$/m); if(m) title=m[1].trim(); }
-  s=cleanMarkdown(s);
-  const lines=s.split('\n').filter(l=>{
-    const t=l.trim();
-    return t.length>0 && !(t.length<60 && URL_NOISE_LINE.test(t));
-  });
-  return {title, text:lines.join('\n').trim(), source:hostOf(url)};
-}
-function extractArticleFromHTML(html, url){
-  const doc=new DOMParser().parseFromString(html,'text/html');
-  doc.querySelectorAll('script,style,nav,header,footer,aside,form,iframe,noscript,svg,button,select,input').forEach(n=>n.remove());
-  // 标题：og:title > h1 > <title>
-  let title='';
-  const og=doc.querySelector('meta[property="og:title"]');
-  const h1=doc.querySelector('h1');
-  if(og&&og.content) title=og.content.trim();
-  else if(h1) title=(h1.textContent||'').trim();
-  else if(doc.title) title=(doc.title||'').trim();
-  title=title.replace(/\s*[|\-–—]\s*[A-Za-z0-9 .&']+\s*$/,'').trim(); // 去掉尾部的站点名
-  // 正文容器：按「有效段落数」打分，同分时取更小（更深）的容器，避免选到包裹整页的外层 div
-  let best=null,bestGood=0,bestLen=Infinity;
-  doc.querySelectorAll('article,main,section,div').forEach(node=>{
-    const ps=node.querySelectorAll('p');
-    if(!ps.length) return;
-    let good=0,len=0;
-    ps.forEach(p=>{ const t=(p.textContent||'').trim(); len+=t.length; if(t.length>60) good++; });
-    if(good===0) return;
-    if(good>bestGood || (good===bestGood && len<bestLen)){ bestGood=good; bestLen=len; best=node; }
-  });
-  let paras=[];
-  if(best){ best.querySelectorAll('p').forEach(p=>{ const t=(p.textContent||'').trim(); if(t.length>25) paras.push(t); }); }
-  if(paras.length<2){
-    paras=[]; doc.querySelectorAll('p').forEach(p=>{ const t=(p.textContent||'').trim(); if(t.length>60) paras.push(t); });
-  }
-  // 去重（嵌套容器可能重复取到同一段）
-  const seen=new Set(); const out=[];
-  paras.forEach(p=>{ const k=p.slice(0,80); if(!seen.has(k)){ seen.add(k); out.push(p); } });
-  let text=out.join('\n\n').trim();
-  if(!text && doc.body) text=(doc.body.textContent||'').replace(/[ \t]+\n/g,'\n').replace(/\n{3,}/g,'\n\n').trim();
-  let source='';
-  const site=doc.querySelector('meta[property="og:site_name"]');
-  if(site&&site.content) source=site.content.trim();
-  if(!source) source=hostOf(url);
-  return {title, text, source};
-}
-function unwrapJsonProxy(body){
-  try{ const j=JSON.parse(body); if(j && typeof j.contents==='string' && j.contents) return j.contents; }catch(e){}
-  return body;
-}
-/* 代理商（Cloudflare 等）出错时常返回 HTML 错误页而非报错，
-   其正文长度可能仍超下限，会被误当正文填入。这里识别典型错误页特征并拒绝。
-   注意：必须要求「错误上下文」，不能只匹配 5xx 数字——否则 "S&P 500:" 这类
-   财经常见写法会被误杀。 */
-function looksLikeErrorPage(text, title){
-  const t=String(text||'');
-  const s=((title||'')+' '+t.slice(0,400));
-  // 强特征：代理商错误页独有，直接判错
-  if(/connection timed out|origin web server|ray id\b|attention required|access denied|bad gateway|service unavailable|temporarily unavailable/i.test(s)) return true;
-  // 弱特征（如 "HTTP 503"）：只在正文很短时才判错——错误页都是短文，真文章都长
-  if(t.length<1500 && /(?:error|http|status|code|response)\s*[:#]?\s*5[0-9]{2}\b|\b5[23][0-9]\s*:\s*(?:connection|origin|gateway|bad|time)/i.test(s)) return true;
-  return false;
-}
-function buildProxies(url){
-  const list=[];
-  const custom=(settings && settings.urlProxy ? settings.urlProxy : '').trim();
-  if(custom){
-    list.push({name:'自定义代理', type:'html',
-      build:()=> custom.indexOf('{url}')>=0 ? custom.replace('{url}', encodeURIComponent(url)) : custom+encodeURIComponent(url)});
-  }
-  URL_PROXIES.forEach(p=>list.push({name:p.name, type:p.type, build:()=>p.build(url)}));
-  return list;
-}
-async function fetchArticle(url){
-  // 并行竞速：所有通道同时发起，第一个成功返回有效正文的立即采用，避免顺序等待累积超时（最坏从 40s+ 降到最快通道耗时）
-  const all=buildProxies(url);
-  return new Promise(function(resolve,reject){
-    let done=false, pending=all.length, lastErr=null;
-    all.forEach(function(p){
-      (async function(){
-        try{
-          const res=await fetchWithTimeout(p.build(url), 15000);
-          if(done) return;
-          if(!res.ok) throw new Error('HTTP '+res.status);
-          const body=await res.text();
-          if(done) return;
-          if(!body || body.length<200) throw new Error('返回内容过短');
-          let r;
-          if(p.type==='md') r=parseJinaMarkdown(body,url);
-          else if(p.type==='json') r=extractArticleFromHTML(unwrapJsonProxy(body),url);
-          else r=extractArticleFromHTML(body,url);
-          if(!r.text || r.text.length<200) throw new Error('未提取到正文');
-          if(looksLikeErrorPage(r.text, r.title)) throw new Error('通道返回了错误页');
-          if(done) return;
-          done=true; r.via=p.name; resolve(r);
-        }catch(e){ lastErr=e; }
-        finally{ if(!done && --pending===0) reject(new Error((lastErr&&lastErr.message)||'所有通道均失败')); }
-      })();
-    });
-  });
-}
-async function fetchFromUrl(){
-  const input=document.getElementById('inUrl');
-  const btn=document.getElementById('urlBtn');
-  const st=document.getElementById('urlStatus');
-  if(!input||!st) return;
-  const url=normalizeUrl(input.value);
-  if(!url){
-    st.className='url-status err';
-    st.textContent='网址看起来不对，请输入完整网址，如 https://www.economist.com/...';
-    return;
-  }
-  if(btn){ btn.disabled=true; btn.textContent='⏳ 抓取中…'; }
-  st.className='url-status';
-  st.textContent='⏳ 正在抓取 '+url+' …（并行尝试多个通道，通常几秒完成）';
-  try{
-    const r=await fetchArticle(url);
-    const ta=document.getElementById('inText'); if(ta) ta.value=r.text;
-    const ti=document.getElementById('inTitle'); if(ti && !ti.value.trim() && r.title) ti.value=r.title;
-    const so=document.getElementById('inSource'); if(so && !so.value.trim() && r.source) so.value=r.source;
-    st.className='url-status ok';
-    st.textContent='✅ 已抓取「'+(r.title||url)+'」· 约 '+r.text.length+' 字 · 通道 '+r.via+'。可先编辑，再点「生成五维精读」。';
-  }catch(err){
-    st.className='url-status err';
-    st.textContent='⚠️ 抓取失败：'+err.message+'。建议手动复制正文粘贴，或把网页存成 PDF / TXT 后上传。';
-  }finally{
-    if(btn){ btn.disabled=false; btn.textContent='🌐 抓取正文'; }
-  }
 }
 
 async function handleFile(f){
@@ -3123,12 +2933,11 @@ function importLibText(txt){
 function today(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 
 /* ---------- 设置 / 导出弹窗 ---------- */
-function openSettings(){ document.getElementById('setBase').value=settings.base||'https://open.bigmodel.cn/api/coding/paas/v4'; document.getElementById('setKey').value=settings.key||DEFAULT_KEY; document.getElementById('setModel').value=settings.model||'glm-5.3-flash'; const up=document.getElementById('setUrlProxy'); if(up) up.value=settings.urlProxy||''; const ex=document.getElementById('setExercise'); if(ex) ex.value=settings.exerciseMode||'cloze'; document.getElementById('setOverlay').classList.add('show'); }
+function openSettings(){ document.getElementById('setBase').value=settings.base||'https://open.bigmodel.cn/api/coding/paas/v4'; document.getElementById('setKey').value=settings.key||DEFAULT_KEY; document.getElementById('setModel').value=settings.model||'glm-5.3-flash'; const ex=document.getElementById('setExercise'); if(ex) ex.value=settings.exerciseMode||'cloze'; document.getElementById('setOverlay').classList.add('show'); }
 function closeSettings(){ document.getElementById('setOverlay').classList.remove('show'); }
 function saveSettings(){
-  const up=document.getElementById('setUrlProxy');
   const ex=document.getElementById('setExercise');
-  settings={base:document.getElementById('setBase').value.trim(), key:document.getElementById('setKey').value.trim(), model:document.getElementById('setModel').value.trim(), urlProxy:up?up.value.trim():'', exerciseMode:ex?ex.value.trim():'cloze'};
+  settings={base:document.getElementById('setBase').value.trim(), key:document.getElementById('setKey').value.trim(), model:document.getElementById('setModel').value.trim(), exerciseMode:ex?ex.value.trim():'cloze'};
   localStorage.setItem(SET_KEY,JSON.stringify(settings)); closeSettings(); alert('已保存');
 }
 async function testConnection(){
