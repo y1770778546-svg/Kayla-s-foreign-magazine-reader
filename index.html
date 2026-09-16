@@ -308,7 +308,7 @@
 @keyframes flashhl{0%{background:var(--accent);color:#fff}100%{background:var(--tint);color:var(--accent)}}
 .waikan-toast{position:fixed; left:50%; bottom:38px; transform:translateX(-50%) translateY(12px); background:rgba(40,30,20,.92); color:#fff; padding:10px 18px; border-radius:22px; font-size:13.5px; z-index:200; opacity:0; pointer-events:none; transition:opacity .2s, transform .2s; max-width:80vw; text-align:center}
 .waikan-toast.show{opacity:1; transform:translateX(-50%) translateY(0)}
-.selpop{position:fixed; z-index:80; max-width:330px; background:var(--paper); border:1px solid var(--accent); border-radius:13px; box-shadow:0 10px 34px rgba(40,30,20,.20); padding:13px 15px; font-size:13.5px; line-height:1.6; display:none}
+.selpop{position:fixed; z-index:80; max-width:330px; max-height:calc(100vh - 24px); overflow:auto; background:var(--paper); border:1px solid var(--accent); border-radius:13px; box-shadow:0 10px 34px rgba(40,30,20,.20); padding:13px 15px; font-size:13.5px; line-height:1.6; display:none}
 .selpop.show{display:block}
 .selpop .pw{font-family:Georgia,serif; font-weight:700; color:var(--accent); font-size:15px; margin:0 0 4px}
 .selpop .ppos{color:var(--muted); font-size:12px}
@@ -1869,7 +1869,7 @@ function toast(msg){
 function ensureOriginalWire(){
   if(_origWireInit) return; _origWireInit=true;
   document.addEventListener('mouseup', onTextSelect);
-  window.addEventListener('scroll', function(){ const sp=document.getElementById('selPop'); if(sp&&sp.classList.contains('show') && !document.querySelector('.overlay.show')) sp.classList.remove('show'); }, true);
+  window.addEventListener('scroll', function(e){ const sp=document.getElementById('selPop'); if(sp&&sp.classList.contains('show') && !document.querySelector('.overlay.show')){ if(sp.querySelector('textarea')) return; if(sp.contains(e.target)) return; sp.classList.remove('show'); } }, true);
   // 点击笔记标记 → 弹出笔记；点击外部 → 关闭笔记弹窗
   document.addEventListener('click', function(e){
     const noteEl=e.target.closest && e.target.closest('.mk-note, .mk-note-line, .mk-note-table');
@@ -2267,7 +2267,7 @@ function startNote(){
   if(!selInfo){ toast('请先选中原文文字'); return; }
   body.innerHTML='<div class="pfallback"><b>为选中的原文添加笔记</b></div>'+
     '<div class="pquote">"'+escapeHtml(selInfo.text)+'"</div>'+
-    '<textarea id="noteInput" placeholder="写下你的理解、生词、疑问…" style="width:100%;min-height:70px;margin-top:8px;border:1px solid var(--line);border-radius:8px;padding:8px"></textarea>'+
+    '<textarea id="noteInput" placeholder="写下你的理解、生词、疑问…" style="width:100%;min-height:70px;max-height:200px;margin-top:8px;border:1px solid var(--line);border-radius:8px;padding:8px"></textarea>'+
     '<div class="pact" style="margin-top:8px"><button class="pbtn" onclick="saveNote()">保存笔记</button><button class="pbtn ghost" onclick="cancelNote()">取消</button></div>';
   const ta=document.getElementById('noteInput'); if(ta) ta.focus();
 }
