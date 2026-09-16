@@ -1869,7 +1869,7 @@ function toast(msg){
 function ensureOriginalWire(){
   if(_origWireInit) return; _origWireInit=true;
   document.addEventListener('mouseup', onTextSelect);
-  window.addEventListener('scroll', function(){ const sp=document.getElementById('selPop'); if(sp&&sp.classList.contains('show')) sp.classList.remove('show'); }, true);
+  window.addEventListener('scroll', function(){ const sp=document.getElementById('selPop'); if(sp&&sp.classList.contains('show') && !document.querySelector('.overlay.show')) sp.classList.remove('show'); }, true);
   // 点击笔记标记 → 弹出笔记；点击外部 → 关闭笔记弹窗
   document.addEventListener('click', function(e){
     const noteEl=e.target.closest && e.target.closest('.mk-note, .mk-note-line, .mk-note-table');
@@ -2066,9 +2066,15 @@ function fallbackCopy(text){
 function positionSelPop(rect){
   const sp=document.getElementById('selPop'); if(!sp) return;
   const pw=sp.offsetWidth, ph=sp.offsetHeight;
+  const vw=window.innerWidth, vh=window.innerHeight;
   let top=rect.top-ph-10; if(top<8) top=rect.bottom+10;
+  // 长段/多字选中时，放在选区下方可能超出视口底部 → 尽量回上方；上方也不够则夹紧到视口内
+  if(top+ph>vh-8){
+    if(rect.top-ph-10>=8) top=rect.top-ph-10;
+    else top=Math.max(8, vh-ph-8);
+  }
   let left=rect.right-pw; if(left<8) left=8;
-  if(left+pw>window.innerWidth-8) left=window.innerWidth-pw-8;
+  if(left+pw>vw-8) left=vw-pw-8;
   sp.style.top=top+'px'; sp.style.left=left+'px';
 }
 function fetchJSON(url, ms){
